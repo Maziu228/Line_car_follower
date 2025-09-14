@@ -1,96 +1,91 @@
 #include <QTRSensors.h>
-#include <ZumoReflectanceSensorArray.h>
 
-/*
-This example is designed to be run an Arduino that is connected to a Zumo
-Reflectance Sensor Array through a Zumo Shield.
+QTRSensors qtr;
 
-The setup phase of this example calibrates the sensor for ten seconds and
-turns on the pin 13 LED while calibration is going on.  During this phase,
-you should expose each reflectance sensor to the lightest and darkest
-readings they will encounter.  For example, if you are making a line
-follower, you should slide the sensors across the line during the
-calibration phase so that each sensor can get a reading of how dark the
-line is and how light the ground is.  Improper calibration will result in
-poor readings. If you want to skip the calibration phase, you can get the
-raw sensor readings (pulse times from 0 to 2500 us) by calling
-reflectance.read(sensorValues) instead of
-reflectance.readLine(sensorValues).
+const uint8_t SensorCount = 6;
+uint16_t sensorValues[SensorCount];
 
-The loop function reads the calibrated sensor values.  It also uses the
-values to estimate the position of a line, in case you are using the Zumo
-for line following. It prints the sensor values to the serial monitor as
-numbers from 0 (maximum reflectance) to 1000 (minimum reflectance) followed
-by the estimated location of the line as a number from 0 to 5000.  A line
-position of 1000 means the line is directly under sensor 1, 2000 means
-directly under sensor 2, etc.  0 means the line is directly under sensor 0
-or was last seen by sensor 0 before being lost.  5000 means the line is
-directly under sensor 5 or was last seen by sensor 5 before being lost.
-*/
+// Motor control pins
+const int AIN1 = 13;   // Right motor control pin 1
+const int AIN2 = 12;   // Right motor control pin 2
+const int PWMA = 6;    // Right motor speed control (PWM)
 
-ZumoReflectanceSensorArray reflectanceSensors;
+const int BIN1 = 9;    // Left motor control pin 1
+const int BIN2 = 8;    // Left motor control pin 2
+const int PWMB = 10;   // Left motor speed control (PWM)
 
-// Define an array for holding sensor values.
-#define NUM_SENSORS 6
-unsigned int sensorValues[NUM_SENSORS];
+void setup() {
+  Serial.begin(9600);
+  Serial.println("QTR calibration demo");
 
-void setup()
-{
-  reflectanceSensors.init();
+  // Sensor setup
+  qtr.setTypeRC();
+  qtr.setSensorPins((const uint8_t[]){5, A2, A0, 11, A3, 4}, SensorCount);
+  qtr.setEmitterPin(2);
+
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, HIGH); // calibration running
 
   delay(500);
-  pinMode(13, OUTPUT);
-  digitalWrite(13, HIGH);        // turn on LED to indicate we are in calibration mode
 
-  unsigned long startTime = millis();
-  while(millis() - startTime < 10000)   // make the calibration take 10 seconds
-  {
-     reflectanceSensors.calibrate();
+  for (uint16_t i = 0; i < 400; i++) {
+    qtr.calibrate();
+    delay(10);
+    Serial.println(i);
   }
-  digitalWrite(13, LOW);         // turn off LED to indicate we are through with calibration
+  digitalWrite(LED_BUILTIN, LOW); // calibration done
 
-  // print the calibration minimum values measured when emitters were on
-  Serial.begin(9600);
-  for (byte i = 0; i < NUM_SENSORS; i++)
-  {
-    Serial.print(reflectanceSensors.calibratedMinimumOn[i]);
-    Serial.print(' ');
-  }
-  Serial.println();
+  // Motor pins
+  pinMode(AIN1, OUTPUT);
+  pinMode(AIN2, OUTPUT);
+  pinMode(PWMA, OUTPUT);
 
-  // print the calibration maximum values measured when emitters were on
-  for (byte i = 0; i < NUM_SENSORS; i++)
-  {
-    Serial.print(reflectanceSensors.calibratedMaximumOn[i]);
-    Serial.print(' ');
-  }
-  Serial.println();
-  Serial.println();
-  delay(1000);
+  pinMode(BIN1, OUTPUT);
+  pinMode(BIN2, OUTPUT);
+  pinMode(PWMB, OUTPUT);
+
+  Serial.println("Calibration is done");
 }
 
-void loop()
-{
-  // read calibrated sensor values and obtain a measure of the line position.
-  // Note: the values returned will be incorrect if the sensors have not been properly
-  // calibrated during the calibration phase.
-  unsigned int position = reflectanceSensors.readLine(sensorValues);
+void loop() {
+  // Read line position (0 = far left, 5000 = far right)
+  uint16_t position = qtr.readLineBlack(sensorValues);
 
-  // To get raw sensor values instead, call:
-  //reflectanceSensors.read(sensorValues);
-
-  for (byte i = 0; i < NUM_SENSORS; i++)
-  {
+  // Print sensor values
+  for (uint8_t i = 0; i < SensorCount; i++) {
     Serial.print(sensorValues[i]);
-    Serial.print(' ');
+    Serial.print('\t');
   }
-  Serial.print("    ");
+  Serial.print("Position: ");
   Serial.println(position);
 
-  delay(250);
-}
-//
-// Created by jonga on 04.09.2025.
-//
+  // Motor control logic
+  if (position > 3500) {
+    // Turn left
+    rightMotor(75);
+    leftMotor(25);
+  } else if (position > 1500) {
+    // Turn right
+    rightMotor(25);
+    leftMotor(75);
+  } else {
+    // Go straight
+    rightMotor(75);
+    leftMotor(75);
+  }
 
-#include "calib.hpp"
+  delay(100);
+}
+
+// Motor functions
+void rightMotor(int speed) {
+  digitalWrite(AIN1, HIGH);
+  digitalWrite(AIN2, LOW);
+  analogWrite(PWMA, speed);
+}
+
+void leftMotor(int speed) {
+  digitalWrite(BIN1, HIGH);
+  digitalWrite(BIN2, LOW);
+  analogWrite(PWMB, speed);
+}
